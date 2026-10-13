@@ -9,8 +9,8 @@ class LexoraService{
 
 
     private static readonly _appState = AppState.GetInstance();
-    private static readonly _productionBaseUrl = "https://api.lexora.com"; //TODO: Get from environment
-    private static readonly _developmentBaseUrl = "http://localhost:8080/api/v1";
+    private static readonly _productionBaseUrl = "https://api.lexora.com/v1"; //TODO: Get from environment
+    private static readonly _developmentBaseUrl = "http://localhost:8080/v1";
 
     public static get baseUrl(): string {
         if (LexoraService._appState.Environment  === Environment.Production) {
@@ -28,7 +28,38 @@ class LanguageService extends LexoraService implements ILanguageService  {
 
     public constructor(){
         super();
-        this._apiUrl = LexoraService.baseUrl;
+        this._apiUrl = LexoraService.baseUrl + '/language';
+    }
+
+    // Editing the dictionary requires an editor account on the gateway. On the server, Olympus logs in
+    // with the LYKEION_ADMIN_EMAIL / LYKEION_ADMIN_PASSWORD environment variables and reuses the token.
+    private static _accessToken: string | null = null;
+    private static _accessTokenExpiry = 0;
+
+    private async authHeaders(): Promise<Record<string, string>> {
+        const env = typeof window === 'undefined'
+            ? (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env
+            : undefined;
+        if (!env?.LYKEION_ADMIN_EMAIL || !env?.LYKEION_ADMIN_PASSWORD) {
+            return {};
+        }
+
+        if (!LanguageService._accessToken || Date.now() > LanguageService._accessTokenExpiry) {
+            const response = await fetch(LexoraService.baseUrl + '/auth/login', {
+                method: "POST",
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: env.LYKEION_ADMIN_EMAIL, password: env.LYKEION_ADMIN_PASSWORD })
+            });
+            if (!response.ok) {
+                throw new Error("Error while logging in to the gateway");
+            }
+            const data = await response.json() as { accessToken: string };
+            LanguageService._accessToken = data.accessToken;
+            // access tokens are valid for 15 minutes, refresh a little earlier
+            LanguageService._accessTokenExpiry = Date.now() + 14 * 60 * 1000;
+        }
+
+        return { 'Authorization': 'Bearer ' + LanguageService._accessToken };
     }
 
     public get Endpoint() {
@@ -37,7 +68,7 @@ class LanguageService extends LexoraService implements ILanguageService  {
 
     public async ping(){
         try {
-            const response = await fetch(this._apiUrl + '/ping');
+            const response = await fetch(LexoraService.baseUrl + '/ping');
             if (!response.ok){
                 throw new Error("Error getting response for ping");
             }
@@ -88,10 +119,11 @@ class LanguageService extends LexoraService implements ILanguageService  {
     }
     public async createReferent(referent: Referent): Promise<Referent> {
         try {
-            const response = await fetch(this._apiUrl + '/referent', {
+            const response = await fetch(this._apiUrl + '/referent/', {
                 method: "POST",
                 headers: {
                     'Content-Type': 'application/json',
+                    ...(await this.authHeaders()),
                 },
                 body: JSON.stringify(referent)
             });
@@ -107,10 +139,11 @@ class LanguageService extends LexoraService implements ILanguageService  {
     }
     public async createSymbol(symbol: Symbol): Promise<Symbol> {
         try {
-            const response = await fetch(this._apiUrl + '/symbol', {
+            const response = await fetch(this._apiUrl + '/symbol/', {
                 method: "POST",
                 headers: {
                     'Content-Type': 'application/json',
+                    ...(await this.authHeaders()),
                 },
                 body: JSON.stringify(symbol)
             });
@@ -126,10 +159,11 @@ class LanguageService extends LexoraService implements ILanguageService  {
     }
     public async createWord(word: Word): Promise<Word> {
         try {
-            const response = await fetch(this._apiUrl + '/word', {
+            const response = await fetch(this._apiUrl + '/word/', {
                 method: "POST",
                 headers: {
                     'Content-Type': 'application/json',
+                    ...(await this.authHeaders()),
                 },
                 body: JSON.stringify(word)
             });
@@ -146,10 +180,11 @@ class LanguageService extends LexoraService implements ILanguageService  {
 
     public async updateReferent(referent: Referent): Promise<Referent> {
         try {
-            const response = await fetch(this._apiUrl + '/referent', {
+            const response = await fetch(this._apiUrl + '/referent/', {
                 method: "PUT",
                 headers: {
                     'Content-Type': 'application/json',
+                    ...(await this.authHeaders()),
                 },
                 body: JSON.stringify(referent)
             });
@@ -165,10 +200,11 @@ class LanguageService extends LexoraService implements ILanguageService  {
     }
     public async updateSymbol(symbol: Symbol): Promise<Symbol> {
         try {
-            const response = await fetch(this._apiUrl + '/symbol', {
+            const response = await fetch(this._apiUrl + '/symbol/', {
                 method: "PUT",
                 headers: {
                     'Content-Type': 'application/json',
+                    ...(await this.authHeaders()),
                 },
                 body: JSON.stringify(symbol)
             });
@@ -184,10 +220,11 @@ class LanguageService extends LexoraService implements ILanguageService  {
     }
     public async updateWord(word: Word): Promise<Word> {
         try {
-            const response = await fetch(this._apiUrl + '/word', {
+            const response = await fetch(this._apiUrl + '/word/', {
                 method: "PUT",
                 headers: {
                     'Content-Type': 'application/json',
+                    ...(await this.authHeaders()),
                 },
                 body: JSON.stringify(word)
             });
@@ -210,6 +247,7 @@ class LanguageService extends LexoraService implements ILanguageService  {
                 method: "POST",
                 headers: {
                     'Content-Type': 'application/json',
+                    ...(await this.authHeaders()),
                 },
                 body: JSON.stringify({
                     symbolUid: symbolUid,
@@ -230,6 +268,7 @@ class LanguageService extends LexoraService implements ILanguageService  {
                 method: "POST",
                 headers: {
                     'Content-Type': 'application/json',
+                    ...(await this.authHeaders()),
                 },
                 body: JSON.stringify({
                     symbolUid: symbolUid,
@@ -247,10 +286,11 @@ class LanguageService extends LexoraService implements ILanguageService  {
     }
     public async setWordAsLemma(wordUid: string, symbolUid: string): Promise<void> {
         try {
-            const response = await fetch(this._apiUrl + '/set-word-as-lemma/', {
+            const response = await fetch(this._apiUrl + '/set-word-as-lemma', {
                 method: "POST",
                 headers: {
                     'Content-Type': 'application/json',
+                    ...(await this.authHeaders()),
                 },
                 body: JSON.stringify({
                     symbolUid: symbolUid,
@@ -298,6 +338,7 @@ class LanguageService extends LexoraService implements ILanguageService  {
                 method: "POST",
                 headers: {
                     'Content-Type': 'application/json',
+                    ...(await this.authHeaders()),
                 },
                 body: JSON.stringify({
                     text:text,
