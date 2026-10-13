@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # svelte-check currently reports this many errors on main. CI fails if the
+      # count goes up; lower it as errors get fixed, until it reaches 0.
+      MAX_SVELTE_CHECK_ERRORS: 38
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.5.x
+      - run: deno install --frozen
+      - run: deno task build
+      - name: svelte-check (no new errors)
+        run: |
+          set +e
+          out=$(deno task check 2>&1)
+          echo "$out"
+          errors=$(echo "$out" | sed -n 's/.*svelte-check found \([0-9]*\) error.*/\1/p' | tail -1)
+          if [ -z "$errors" ]; then
+            echo "::error::could not read the svelte-check error count"
+            exit 1
+          fi
+          echo "svelte-check errors: $errors (allowed: $MAX_SVELTE_CHECK_ERRORS)"
+          if [ "$errors" -gt "$MAX_SVELTE_CHECK_ERRORS" ]; then
+            echo "::error::svelte-check found $errors errors, more than the $MAX_SVELTE_CHECK_ERRORS allowed"
+            exit 1
+          fi
